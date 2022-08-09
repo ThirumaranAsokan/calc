@@ -1,75 +1,123 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-from pycoingecko import CoinGeckoAPI
-from datetime import datetime, timedelta
-cg = CoinGeckoAPI()
+import time
+import urllib.request
+import json
+import datetime
 
-st.image('', use_column_width=True)
-#st.write('''## Choose Crypto Currency''')
-Stocks = st.selectbox('Select Crypto Currency', ['bitcoin','dogecoin','ethereum','binancecoin','tether','cardano','litecoin','shiba-inu','wazirx','polygon','bnb','xrp','dai','avalanche','stellar','cronos','ftx','uniswap','polkadot'])
-st.write('Choice',Stocks)
-choice= Stocks
-st.write('Date')
-today = datetime.utcnow().date()
-past = today - timedelta(days=1)
-date = st.date_input("Date: ", value=past, min_value=datetime(2015,1,1), max_value=past)
-st.write(date)
-currency = st.selectbox('Currency Type', ['GBP'])
-Purchase = st.number_input(currency +" purchase: ", min_value=0, max_value=999999999)
-crypto_current = cg.get_price(choice, vs_currencies= currency)[id][currency]
+try:
+    # tries to read file
+    f = open("Coins.json", "r")
+    userCoin = json.loads(f.read())
+    f.close()
+except IOError:
+    # if file doesn't exist then it's created
+    f = open("Coins.json", "w+")
+    json.dump({}, f)
+    f.close()
+    f = open("Coins.json", "r")
+    userCoin = json.loads(f.read())
+    f.close()
 
-#Reformat Historical Date for next function
-Date = date.strftime("%d-%m-%Y")
-Years = datetime.strptime(Date,"%d-%m-%Y")
-value = cg.value(choice, vs_currencies=selected_currency_type, date=selected_historical_date_reformat)['market_data']['current_price'][selected_currency_type]
-value = float(value)
+choice1 = input("Would you like to add or update cryptocurrency transactions? (y/n) ")
+# verifies answer is valid
+while choice1 != "y" and choice1 != "n":
+    print(
+    "Answer must be a y (for yes) or an n (for no)")
+    choice1 = input("Would you like to add or update cryptocurrency transactions? (y/n) ")
 
-# Display Results - Historical Value
-st.write('''# Results''')
-st.write('''## Historic Analysis''')
+if choice1 == "y":
 
-if selected_crypto_currency_historic == 0:
-    st.write("YOU  PURCHASED: 0",selected_crypto_currency)
-else:
-    st.write("YOU  PURCHASED: ", round((selected_amount/selected_crypto_currency_historic),5),selected_crypto_currency)
+    badInput = True
+    while badInput:
+        coinName = input("What Coin? (Use symbol,ex:BTC): ")
+        # accesses API for list of cryptocurrencies
+        webpage = urllib.request.urlopen("https://www.cryptocompare.com/api/data/coinlist")
+        data = json.loads(webpage.read())
+        for coin in data["Data"]:
+            if coin == coinName:
+                badInput = False
+                break
+        if badInput:
+            print(
+            "Answer must use the correct symbol for the cryptocurrency you would like to enter (case sensitive)")
 
-st.write("At A PRICE $", selected_crypto_currency_historic,' per',selected_crypto_currency)
+    badInput = True
+    while badInput:
+        badInput = False
+        date = input("Day? (MM/DD/YYYY): ")
+        try:
+            # parses for correct date
+            year = int(date[6:])
+            month = int(date[:2])
+            day = int(date[3:5])
+            hour = 0
+            # datetime.datetime(year,month,day,hour)
 
+            localTime = time.struct_time((year, month, day, 0, 0, 0, 0, 0, 0))
+            # converts to epoch time
+            epochTime = int(time.mktime(localTime))
+        except ValueError:
+            print("Make sure the date you input is in the correct format")
+            badInput = True
+            continue
 
-st.write('''## Today Prices''')
-if selected_crypto_currency_historic == 0:
-    total_coins = 0
-else:
-    total_coins = selected_amount/selected_crypto_currency_historic
+        # validates date is within earliest time on API
+        if epochTime > time.time() or epochTime < 1314316800:
+            print("Make sure date is valid")
+            badInput = True
+        if not badInput:
+            epTime = str(epochTime)
+            webpage = urllib.request.urlopen(
+                "https://min-api.cryptocompare.com/data/pricehistorical?fsym=" + coinName + "&tsyms=USD&ts=" + epTime)
+            data = json.loads(webpage.read())
+            # checks to see if inputted date is after the creation of that cryptocurrency
+            if data[coinName]["USD"] == 0:
+                badInput = True
+                print("Make sure date is not before cryptocurrency was created")
+    epTime = str(epochTime)
 
-current_selected_currency_type = total_coins * crypto_current
-perc_change = (current_selected_currency_type - selected_amount)/(selected_amount)*100
-selected_currency_type_diff = current_selected_currency_type - selected_amount
+    webpage = urllib.request.urlopen(
+        "https://min-api.cryptocompare.com/data/pricehistorical?fsym=" + coinName + "&tsyms=USD&ts=" + epTime)
+    data = json.loads(webpage.read())
 
-st.write("CURRENCY VALUE: $", round(current_selected_currency_type,2))
-st.write(" VALUE IN PERCENTAGE ", round(perc_change, 2), "%")
+    badInput = True
+    while badInput:
+        badInput = False
+        coinUSD = input("How much money did you spend on " + coinName + " on " + date + ":$ ")
+        try:
+            # checks if amount is a float
+            coinUSD = float(coinUSD)
+        except:
+            print("Make sure you entered a valid answer")
+            badInput = True
+            continue
+        # makes sure input amount is a positive number
+        if coinUSD < 0:
+            badInput = True
+            print(
+            "Make sure answer is not negative")
+    # gets amount of coins that was purchased at the time, so that system can convert to current price
+    coinAmount = coinUSD / data[coinName]["USD"]
 
-if selected_currency_type_diff == 0:
-   st.write('''# You were lucky with profit''')
-elif selected_currency_type_diff <= 0:
-   st.write('''# You got Loss''')
-else:
-   st.write('''# You lost Out On''')
-st.write('$', abs(round(selected_currency_type_diff,2)),"!!!")
+    try:
+        # tries to update an existing coin
+        userCoin[coinName]["amount"] += coinAmount
+        userCoin[coinName]["paid"] += coinUSD
 
-now = datetime.now()
-historical_prices = cg.get_coin_market_chart_range_by_id(id, vs_currency=selected_currency_type, from_timestamp=selected_historical_date_datetime.timestamp(), to_timestamp=now.timestamp())['prices']
+    except:
+        # if coin doesn't exist this adds it
+        userCoin.update({coinName: {"paid": coinUSD, "amount": coinAmount}})
+    # writes all new information to file for saving
+    with open('Coins.json', 'w') as outfile:
+        json.dump(userCoin, outfile)
 
-dates = []
-prices = []
+# loops through all coins in file
+for coin in userCoin:
+    # gets current price information for coin being accessed
+    webpage = urllib.request.urlopen(
+        "https://min-api.cryptocompare.com/data/pricehistorical?fsym=" + coin + "&tsyms=USD&ts=" + str(
+            int(time.time())))
+    data = json.loads(webpage.read())
 
-for x,y in historical_prices:
-  dates.append(x)
-  prices.append(y)
-
-dictionary = {"Prices":prices, "Dates":dates}
-df = pd.DataFrame(dictionary)
-df['Dates'] = pd.to_datetime(df['Dates'],unit='ms',origin='unix')
-
-st.line_chart(df.rename(columns={"Dates":"index"}).set_index("index"))
+    print(
+    "Your net gain/loss for " + coin + ":$ " + str(
+        float(data[coin]["USD"]) * userCoin[coin]["amount"] - userCoin[coin]["paid"]))
